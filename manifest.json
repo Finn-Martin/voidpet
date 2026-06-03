@@ -1,0 +1,313 @@
+'use client';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { api } from '@/lib/api';
+import { ELEMENT_EMOJI, ROLE_EMOJI, RARITY_COLORS } from '@/lib/utils';
+
+const STATS = ['ATK', 'DEF', 'STAMINA', 'SPD', 'CRIT'];
+const STAT_LABELS: Record<string, string> = { ATK: '⚔️ ATK', DEF: '🛡️ DEF', STAMINA: '❤️ HP', SPD: '💨 SPD', CRIT: '🎯 CRIT%' };
+const ALGOS = [
+  { key: 'BRUTE_FORCE', label: 'Thorough', desc: 'Checks all combos. Best result.' },
+  { key: 'GREEDY',      label: 'Fast',     desc: 'Instant result. Slightly less optimal.' },
+];
+
+function GearSlotDisplay({ label, gear }: { label: string; gear: any }) {
+  if (!gear) return (
+    <div className="bg-void-800/30 border border-void-700/30 rounded-xl p-3 flex items-center gap-2">
+      <span className="text-gray-600 text-xs w-16 shrink-0">{label}</span>
+      <span className="text-gray-700 text-xs italic">Empty</span>
+    </div>
+  );
+  return (
+    <div className="bg-void-800/50 border border-void-600/40 rounded-xl p-3 flex items-center gap-2">
+      <span className="text-gray-400 text-xs w-16 shrink-0">{label}</span>
+      <div className="flex-1 min-w-0">
+        <div className="font-bold text-sm text-white truncate">{gear.name}</div>
+        <div className="text-xs text-gray-500">
+          {gear.bonusAtk > 0 && <span className="mr-2 text-red-400">ATK+{gear.bonusAtk}</span>}
+          {gear.bonusDef > 0 && <span className="mr-2 text-blue-400">DEF+{gear.bonusDef}</span>}
+          {gear.bonusStamina > 0 && <span className="mr-2 text-green-400">HP+{gear.bonusStamina}</span>}
+          {gear.bonusSpd > 0 && <span className="mr-2 text-yellow-400">SPD+{gear.bonusSpd}</span>}
+          {gear.bonusCrit > 0 && <span className="text-purple-400">CRIT+{gear.bonusCrit}</span>}
+        </div>
+      </div>
+      <span className={`text-xs font-bold shrink-0
+        ${gear.rarity === 'LEGENDARY' ? 'text-yellow-400' : gear.rarity === 'EPIC' ? 'text-purple-400' :
+          gear.rarity === 'UBER' ? 'text-pink-400' : gear.rarity === 'RARE' ? 'text-blue-400' : 'text-gray-400'}`}>
+        {gear.rarity[0]}
+      </span>
+    </div>
+  );
+}
+
+function StatRow({ label, base, final, color }: { label: string; base: number; final: number; color: string }) {
+  const diff = final - base;
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-gray-400 w-12">{label}</span>
+      <div className="flex-1 mx-3 h-1.5 bg-void-800 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(100, (final / 700) * 100)}%` }} />
+      </div>
+      <div className="flex items-center gap-1 font-mono">
+        <span className="text-white font-bold">{final}</span>
+        {diff > 0 && <span className="text-green-400 text-xs">+{diff}</span>}
+      </div>
+    </div>
+  );
+}
+
+function OptimizerInner() {
+  const searchParams = useSearchParams();
+  const preselectedId = searchParams.get('petId');
+
+  const [pets, setPets] = useState<any[]>([]);
+  const [selectedPet, setSelectedPet] = useState<any>(null);
+  const [evo, setEvo] = useState(5);
+  const [priorityStat, setPriorityStat] = useState('ATK');
+  const [algo, setAlgo] = useState('BRUTE_FORCE');
+  const [minFloor, setMinFloor] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState('');
+  const [showPicker, setShowPicker] = useState(false);
+  const [petSearch, setPetSearch] = useState('');
+
+  useEffect(() => {
+    api.pets.list().then((d: any) => {
+      const list = d.pets ?? d;
+      setPets(list);
+      if (preselectedId) {
+        const pre = list.find((p: any) => p.id === preselectedId);
+        if (pre) setSelectedPet(pre);
+      }
+    });
+  }, [preselectedId]);
+
+  const filteredPets = pets.filter(p =>
+    !petSearch || p.name.toLowerCase().includes(petSearch.toLowerCase())
+  );
+
+  async function runOptimizer() {
+    if (!selectedPet) return;
+    setLoading(true); setError(''); setResult(null);
+    try {
+      const data = await api.builds.optimize({
+        petId: selectedPet.id,
+        evolutionLevel: evo,
+        priorityStat,
+        algorithm: algo,
+        ...(minFloor ? { minFloor: parseInt(minFloor) } : {}),
+      });
+      setResult(data);
+    } catch (e: any) {
+      setError(e.message ?? 'Optimization failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="px-4 pt-6 pb-4 max-w-lg mx-auto space-y-4">
+      <h1 className="text-xl font-extrabold text-white">⚡ Build Optimizer</h1>
+      <p className="text-gray-500 text-xs">Select your pet and preferences. The optimizer tries every gear combination and finds the highest-scoring loadout.</p>
+
+      {/* Step 1: Pet */}
+      <div className="bg-void-900/60 border border-void-700/50 rounded-2xl p-4 space-y-3">
+        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">1. Choose Pet</h2>
+        {selectedPet ? (
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0
+              ${selectedPet.element === 'FIRE' ? 'bg-orange-500/20' : selectedPet.element === 'WATER' ? 'bg-cyan-500/20' :
+                selectedPet.element === 'WOOD' ? 'bg-green-500/20' : selectedPet.element === 'EARTH' ? 'bg-yellow-600/20' : 'bg-gray-400/20'}`}>
+              {ELEMENT_EMOJI[selectedPet.element]}
+            </div>
+            <div className="flex-1">
+              <div className="font-bold text-sm text-white">{selectedPet.displayName}</div>
+              <div className="text-xs text-gray-500">{selectedPet.role} · {selectedPet.rarity} · Tier {selectedPet.tier}</div>
+            </div>
+            <button onClick={() => setShowPicker(true)} className="text-xs text-purple-400 hover:text-purple-300 px-3 py-1.5 border border-purple-700/40 rounded-lg">
+              Change
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setShowPicker(true)}
+            className="w-full py-3 border-2 border-dashed border-void-600 rounded-xl text-gray-500 text-sm hover:border-purple-600 hover:text-gray-300 transition-all">
+            Tap to select a pet
+          </button>
+        )}
+      </div>
+
+      {/* Pet Picker Modal */}
+      {showPicker && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-end" onClick={() => setShowPicker(false)}>
+          <div className="w-full max-w-lg mx-auto bg-void-900 border-t border-void-700 rounded-t-3xl p-4 space-y-3 max-h-[75dvh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-white">Select Pet</h3>
+              <button onClick={() => setShowPicker(false)} className="text-gray-500 text-xl px-2">✕</button>
+            </div>
+            <input value={petSearch} onChange={e => setPetSearch(e.target.value)}
+              placeholder="Search..." className="w-full bg-void-800 border border-void-600 rounded-xl px-3 py-2.5 text-sm text-white outline-none" />
+            <div className="space-y-1.5">
+              {filteredPets.map(p => (
+                <button key={p.id} onClick={() => { setSelectedPet(p); setShowPicker(false); setPetSearch(''); }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-void-800/60 hover:bg-void-700/60 text-left transition-all">
+                  <span className="text-lg">{ELEMENT_EMOJI[p.element]}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm text-white truncate">{p.displayName}</div>
+                    <div className="text-xs text-gray-500">{p.role}</div>
+                  </div>
+                  <span className={`text-xs font-bold ${p.tier === 'S+' ? 'text-pink-400' : p.tier === 'S' ? 'text-yellow-400' : 'text-green-400'}`}>{p.tier}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Evolution */}
+      <div className="bg-void-900/60 border border-void-700/50 rounded-2xl p-4 space-y-3">
+        <div className="flex justify-between">
+          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">2. Evolution Stage</h2>
+          <span className="text-purple-400 font-mono font-bold text-sm">Stage {evo}</span>
+        </div>
+        <input type="range" min={1} max={5} value={evo} onChange={e => setEvo(+e.target.value)}
+          className="w-full accent-purple-500" style={{ height: '44px' }} />
+      </div>
+
+      {/* Step 3: Priority Stat */}
+      <div className="bg-void-900/60 border border-void-700/50 rounded-2xl p-4 space-y-3">
+        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">3. Priority Stat</h2>
+        <div className="grid grid-cols-3 gap-2">
+          {STATS.map(s => (
+            <button key={s} onClick={() => setPriorityStat(s)}
+              className={`py-2.5 rounded-xl text-xs font-bold border transition-all
+                ${priorityStat === s ? 'bg-purple-700/60 border-purple-500 text-white' : 'border-void-700/50 text-gray-500'}`}>
+              {STAT_LABELS[s]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Step 4: Floor filter */}
+      <div className="bg-void-900/60 border border-void-700/50 rounded-2xl p-4 space-y-2">
+        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">4. Max Floor Reached (optional)</h2>
+        <input type="number" value={minFloor} onChange={e => setMinFloor(e.target.value)}
+          placeholder="e.g. 200 — only shows gear from floor 200 and below"
+          className="w-full bg-void-800 border border-void-600 rounded-xl px-3 py-2.5 text-sm text-white outline-none placeholder-gray-700" />
+      </div>
+
+      {/* Step 5: Algorithm */}
+      <div className="bg-void-900/60 border border-void-700/50 rounded-2xl p-4 space-y-3">
+        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">5. Algorithm</h2>
+        <div className="grid grid-cols-2 gap-2">
+          {ALGOS.map(a => (
+            <button key={a.key} onClick={() => setAlgo(a.key)}
+              className={`p-3 rounded-xl border text-left transition-all
+                ${algo === a.key ? 'bg-purple-700/40 border-purple-500 text-white' : 'border-void-700/50 text-gray-500'}`}>
+              <div className="font-bold text-sm">{a.label}</div>
+              <div className="text-xs opacity-70 mt-0.5">{a.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Run button */}
+      <button onClick={runOptimizer} disabled={!selectedPet || loading}
+        className={`w-full py-4 rounded-2xl font-extrabold text-sm transition-all
+          ${selectedPet && !loading
+            ? 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer'
+            : 'bg-void-800 text-gray-600 cursor-not-allowed'}`}
+        style={selectedPet && !loading ? { boxShadow: '0 0 20px rgba(168,85,247,0.35)' } : {}}>
+        {loading ? '🔄 Optimizing...' : '⚡ Find Best Build'}
+      </button>
+
+      {error && (
+        <div className="bg-red-900/30 border border-red-700/40 rounded-xl p-3 text-sm text-red-400">
+          ❌ {error}. Make sure the backend is running.
+        </div>
+      )}
+
+      {/* Results */}
+      {result && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-gray-300">Best Build Found</h2>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span>{result.iterationCount?.toLocaleString()} combos</span>
+              <span>·</span>
+              <span>{result.computedMs}ms</span>
+            </div>
+          </div>
+
+          {/* Score badge */}
+          <div className="bg-void-900/60 border border-purple-700/40 rounded-2xl p-4 text-center"
+            style={{ boxShadow: '0 0 20px rgba(168,85,247,0.15)' }}>
+            <div className="text-4xl font-black text-purple-400">{result.score}</div>
+            <div className="text-xs text-gray-500 mt-1">Optimization Score / 100</div>
+          </div>
+
+          {/* Gear slots */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Recommended Loadout</h3>
+            <GearSlotDisplay label="🎩 Head"    gear={result.loadout?.HEAD} />
+            <GearSlotDisplay label="📿 Neck"    gear={result.loadout?.NECK} />
+            <GearSlotDisplay label="🔮 Trinket 1" gear={result.loadout?.TRINKET1} />
+            <GearSlotDisplay label="💎 Trinket 2" gear={result.loadout?.TRINKET2} />
+          </div>
+
+          {/* Final stats */}
+          {result.computedStats && selectedPet && (
+            <div className="bg-void-900/40 border border-void-700/30 rounded-xl p-4 space-y-3">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Final Stats</h3>
+              <StatRow label="ATK"  base={Math.round(selectedPet.baseAtk + selectedPet.growthAtk * evo)}    final={result.computedStats.atk}     color="bg-red-500" />
+              <StatRow label="DEF"  base={Math.round(selectedPet.baseDef + selectedPet.growthDef * evo)}    final={result.computedStats.def}     color="bg-blue-500" />
+              <StatRow label="HP"   base={Math.round(selectedPet.baseStamina + selectedPet.growthStamina * evo)} final={result.computedStats.stamina} color="bg-green-500" />
+              <StatRow label="SPD"  base={Math.round(selectedPet.baseSpd + selectedPet.growthSpd * evo)}    final={result.computedStats.spd}     color="bg-yellow-500" />
+              <StatRow label="CRIT" base={Math.round(selectedPet.baseCrit + selectedPet.growthCrit * evo)}  final={result.computedStats.crit}    color="bg-purple-500" />
+            </div>
+          )}
+
+          {/* Legendary passives */}
+          {[result.loadout?.HEAD, result.loadout?.NECK, result.loadout?.TRINKET1, result.loadout?.TRINKET2]
+            .filter((g: any) => g?.specialPassive)
+            .map((g: any) => (
+              <div key={g.id} className="bg-yellow-900/20 border border-yellow-700/30 rounded-xl p-3 text-xs">
+                <span className="text-yellow-400 font-bold">✨ {g.name}: </span>
+                <span className="text-gray-300">{g.specialPassive}</span>
+              </div>
+            ))}
+
+          {/* Alternatives */}
+          {result.alternatives?.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Alternatives</h3>
+              {result.alternatives.map((alt: any, i: number) => (
+                <div key={i} className="bg-void-900/40 border border-void-700/30 rounded-xl p-3 space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-400">Option {i + 2}</span>
+                    <span className="text-purple-400 font-mono font-bold">{alt.score}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 space-y-0.5">
+                    {['HEAD','NECK','TRINKET1','TRINKET2'].map(slot => alt.loadout?.[slot] && (
+                      <div key={slot}>{alt.loadout[slot].name}</div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function OptimizerPage() {
+  return (
+    <Suspense fallback={<div className="px-4 pt-6 text-gray-500 text-sm">Loading...</div>}>
+      <OptimizerInner />
+    </Suspense>
+  );
+}

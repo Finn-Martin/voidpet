@@ -1,0 +1,304 @@
+// ============================================================
+// VOIDPET DUNGEON — Meta Build Optimizer: Shared Types
+// Based on actual Voidpet Dungeon game mechanics
+// ============================================================
+
+// ─── Real Game Enumerations ──────────────────────────────────
+
+/** 5 elements with rock-paper-scissors cycle:
+ *  Wood > Earth > Water > Fire > Metal > Wood */
+export enum Element {
+  FIRE = 'FIRE',
+  WATER = 'WATER',
+  WOOD = 'WOOD',
+  EARTH = 'EARTH',
+  METAL = 'METAL',
+}
+
+/** Element advantage lookup — attacker element → bonus multiplier */
+export const ELEMENT_CHART: Record<Element, { strong: Element; weak: Element }> = {
+  [Element.WOOD]:  { strong: Element.EARTH, weak: Element.FIRE  },
+  [Element.EARTH]: { strong: Element.WATER, weak: Element.WOOD  },
+  [Element.WATER]: { strong: Element.FIRE,  weak: Element.EARTH },
+  [Element.FIRE]:  { strong: Element.METAL, weak: Element.WATER },
+  [Element.METAL]: { strong: Element.WOOD,  weak: Element.FIRE  },
+};
+
+export enum PetRole {
+  FIGHTER = 'FIGHTER', // High ATK, low Stamina — primary damage dealer
+  TANK    = 'TANK',    // High DEF/Stamina, shield + taunt skills
+  HEALER  = 'HEALER',  // Heal + buff support
+}
+
+/** Rarity tiers — Uber = Higher Form (HF) of a Legendary */
+export enum PetRarity {
+  RARE      = 'RARE',
+  EPIC      = 'EPIC',
+  LEGENDARY = 'LEGENDARY',
+  UBER      = 'UBER', // Higher Form — only select Legendaries have HF
+}
+
+/** Equipment rarity mirrors pet rarity */
+export enum GearRarity {
+  NORMAL    = 'NORMAL',    // +1 stat
+  RARE      = 'RARE',      // +1-2 stats
+  EPIC      = 'EPIC',      // +1-2 stats, slight bonus
+  LEGENDARY = 'LEGENDARY', // Special passive — drops floor 310+
+  UBER      = 'UBER',      // Uber-grade special effect
+}
+
+/** 4 gear slots per pet: Head, Neck, Trinket×2 */
+export enum GearSlot {
+  HEAD     = 'HEAD',
+  NECK     = 'NECK',
+  TRINKET1 = 'TRINKET1',
+  TRINKET2 = 'TRINKET2',
+}
+
+export enum GearStatType {
+  ATK      = 'ATK',
+  DEF      = 'DEF',
+  STAMINA  = 'STAMINA', // HP
+  SPD      = 'SPD',
+  CRIT     = 'CRIT',    // Crit rate
+}
+
+// ─── Pet Stats ────────────────────────────────────────────────
+
+export interface PetBaseStats {
+  atk:     number;
+  def:     number;
+  stamina: number; // HP pool
+  spd:     number;
+  crit:    number; // Crit rate %
+}
+
+/** Stats gained per evolution level (linear scaling) */
+export interface PetGrowth {
+  atk:     number;
+  def:     number;
+  stamina: number;
+  spd:     number;
+  crit:    number;
+}
+
+// ─── Gear Stats ───────────────────────────────────────────────
+
+export interface GearStats {
+  atk?:     number;
+  def?:     number;
+  stamina?: number;
+  spd?:     number;
+  crit?:    number;
+}
+
+// ─── Gear Item ────────────────────────────────────────────────
+
+export interface GearItem {
+  id:              string;
+  name:            string;
+  slot:            GearSlot;
+  rarity:          GearRarity;
+  stats:           GearStats;       // Primary stat bonuses
+  specialPassive?: string;          // Legendary/Uber only
+  source:          string;          // Which boss drops this
+  ascensionLevel:  number;          // 0-5, upgrades via Void Matter
+  floorRequired?:  number;          // Min floor to obtain
+  imageUrl?:       string;
+}
+
+// ─── Pet ──────────────────────────────────────────────────────
+
+export interface Skill {
+  name:        string;
+  description: string;
+  type:        'BASIC' | 'ACTIVE' | 'PASSIVE' | 'ULTIMATE';
+  cooldown?:   number;
+  effect:      string; // human-readable effect
+}
+
+export interface VoidPet {
+  id:             string;
+  name:           string;              // Emotion name: "Wrath", "Merry", "Lust"
+  displayName:    string;              // e.g. "Lust (HF)" for uber forms
+  element:        Element;
+  role:           PetRole;
+  rarity:         PetRarity;
+  isHigherForm:   boolean;             // true for HF / Uber variants
+  baseOf?:        string;             // base pet ID if this is a HF
+  evolutionStage: number;             // 1-5
+  maxEvolution:   number;             // usually 5
+  baseStats:      PetBaseStats;
+  growth:         PetGrowth;
+  skills:         Skill[];
+  passive?:       string;             // Passive description
+  description:    string;
+  tier:           TierLabel;          // Community consensus tier
+  tierSource:     string;             // "Pocket Gamer May 2026"
+  imageUrl?:      string;
+  tags:           string[];
+}
+
+// ─── Build ────────────────────────────────────────────────────
+
+export interface LoadoutSlots {
+  head?:     GearItem;
+  neck?:     GearItem;
+  trinket1?: GearItem;
+  trinket2?: GearItem;
+}
+
+export interface Build {
+  id:              string;
+  petId:           string;
+  petName:         string;
+  evolutionLevel:  number;     // 1-5
+  loadout:         LoadoutSlots;
+  computedStats:   PetBaseStats;
+  statBreakdown:   StatBreakdown;
+  scores: {
+    overall:   number;  // 0-100
+    offense:   number;
+    defense:   number;
+    utility:   number;
+    confidence: number; // community confidence
+  };
+  role:            PetRole;
+  recommendedFor:  string;     // e.g. "Boss farming", "PvP speed"
+  notes?:          string;
+  source:          BuildSource;
+  patchVersion:    string;
+  isOutdated:      boolean;
+  createdAt:       Date;
+}
+
+export type BuildSource = 'OPTIMIZER' | 'COMMUNITY' | 'REDDIT' | 'MANUAL';
+
+export interface StatBreakdown {
+  base:        PetBaseStats;
+  gearBonus:   GearStats;
+  totalBonus:  GearStats;
+}
+
+// ─── Optimization ────────────────────────────────────────────
+
+export interface OptimizeRequest {
+  petId:        string;
+  evolutionLevel: number;
+  targetRole?:  PetRole;      // override the pet's default role
+  priorityStat: GearStatType; // which stat to maximize
+  excludeGear?: string[];     // gear IDs to exclude
+  minFloor?:    number;       // only use gear obtainable at this floor
+  algorithm:   'BRUTE_FORCE' | 'GENETIC' | 'GREEDY';
+}
+
+export interface OptimizeResult {
+  best:          Build;
+  alternatives:  Build[];      // top-5 alternatives
+  computedMs:    number;
+  algorithm:     string;
+  iterationCount: number;
+}
+
+// ─── Scoring weights per role ─────────────────────────────────
+
+export const ROLE_WEIGHTS: Record<PetRole, Record<keyof GearStats, number>> = {
+  [PetRole.FIGHTER]: { atk: 0.40, def: 0.10, stamina: 0.15, spd: 0.20, crit: 0.15 },
+  [PetRole.TANK]:    { atk: 0.10, def: 0.35, stamina: 0.35, spd: 0.10, crit: 0.10 },
+  [PetRole.HEALER]:  { atk: 0.15, def: 0.20, stamina: 0.25, spd: 0.30, crit: 0.10 },
+};
+
+// ─── Tier / Meta ─────────────────────────────────────────────
+
+export type TierLabel = 'S+' | 'S' | 'A' | 'B' | 'C' | 'D';
+
+export interface MetaEntry {
+  petId:          string;
+  tier:           TierLabel;
+  role:           PetRole;
+  votes:          number;
+  communityNotes: string;
+  lastUpdated:    Date;
+  patchVersion:   string;
+}
+
+export interface ConfidenceBreakdown {
+  mathScore:       number; // 0-25: optimization engine score
+  communityScore:  number; // 0-25: Reddit/meta consensus
+  patchFreshness:  number; // 0-25: how recent the data is
+  popularityScore: number; // 0-25: frequency of use
+  total:           number; // 0-100
+}
+
+// ─── Reddit / Community ──────────────────────────────────────
+
+export interface RedditPost {
+  id:           string;
+  redditId:     string;
+  title:        string;
+  body:         string;
+  author:       string;
+  score:        number;
+  url:          string;
+  petMentions:  string[];
+  sentiment:    number;   // -1 to 1
+  keyPhrases:   string[];
+  patchVersion: string;
+  createdAt:    Date;
+}
+
+// ─── API Responses ────────────────────────────────────────────
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?:   T;
+  error?:  string;
+  meta?: {
+    total?:       number;
+    computedMs?:  number;
+    patchVersion: string;
+    cachedAt?:    string;
+  };
+}
+
+export interface PetListResponse {
+  pets:  VoidPet[];
+  total: number;
+}
+
+export interface GearListResponse {
+  gear:  GearItem[];
+  total: number;
+  bySlot: Record<GearSlot, number>;
+}
+
+// ─── Patch Tracking ──────────────────────────────────────────
+
+export interface PatchNote {
+  id:            string;
+  version:       string;
+  releaseDate:   Date;
+  title:         string;
+  changes:       PatchChange[];
+  isCurrentPatch: boolean;
+}
+
+export interface PatchChange {
+  type:       'BUFF' | 'NERF' | 'NEW' | 'REWORK' | 'REMOVED';
+  targetName: string;
+  targetType: 'PET' | 'GEAR' | 'MECHANIC';
+  description: string;
+  magnitude:   'MINOR' | 'MODERATE' | 'MAJOR';
+}
+
+// ─── Frontend UI State ────────────────────────────────────────
+
+export interface OptimizerState {
+  selectedPet:    VoidPet | null;
+  evolutionLevel: number;
+  priorityStat:   GearStatType;
+  algorithm:      OptimizeRequest['algorithm'];
+  result:         OptimizeResult | null;
+  isLoading:      boolean;
+  error:          string | null;
+}

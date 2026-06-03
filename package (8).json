@@ -1,0 +1,20 @@
+const withPWA = require('next-pwa')({
+  dest: 'public',
+  disable: process.env.NODE_ENV === 'development',
+  register: true,
+  skipWaiting: true,
+  runtimeCaching: [
+    { urlPattern: /^https:\/\/.*\.vercel\.app\/api\/.*/, handler: 'NetworkFirst', options: { cacheName: 'api-cache', expiration: { maxEntries: 50, maxAgeSeconds: 300 } } },
+    { urlPattern: /\/_next\/static\/.*/, handler: 'CacheFirst', options: { cacheName: 'static-cache' } },
+  ],
+});
+module.exports = withPWA({
+  env: { NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000' },
+  images: { domains: ['voidpet.com'] },
+  async headers() {
+    return [{ source:'/(.*)', headers:[
+      { key:'X-Content-Type-Options', value:'nosniff' },
+      { key:'X-Frame-Options', value:'DENY' },
+    ]}];
+  },
+});
